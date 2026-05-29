@@ -7,6 +7,7 @@ use std::sync;
 
 pub use balancebeam::BalanceBeam;
 pub use echo_server::EchoServer;
+#[allow(unused_imports)]
 pub use error_server::ErrorServer;
 pub use server::Server;
 

@@ -2,7 +2,7 @@ use rand::Rng;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 pub struct BalanceBeam {
     #[allow(dead_code)]
@@ -12,11 +12,20 @@ pub struct BalanceBeam {
 
 impl BalanceBeam {
     fn target_bin_path() -> std::path::PathBuf {
-        let mut path = std::env::current_exe().expect("Could not get current test executable path");
-        path.pop();
-        path.pop();
-        path.push("balancebeam");
-        path
+        std::env::var_os("CARGO_BIN_EXE_balancebeam")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                let mut path =
+                    std::env::current_exe().expect("Could not get current test executable path");
+                path.pop();
+                path.pop();
+                path.push(if cfg!(windows) {
+                    "balancebeam.exe"
+                } else {
+                    "balancebeam"
+                });
+                path
+            })
     }
 
     pub async fn new(
@@ -25,7 +34,7 @@ impl BalanceBeam {
         max_requests_per_minute: Option<usize>,
     ) -> BalanceBeam {
         let mut rng = rand::thread_rng();
-        let address = format!("127.0.0.1:{}", rng.gen_range(1024, 65535));
+        let address = format!("127.0.0.1:{}", rng.gen_range(1024..65535));
         let mut cmd = Command::new(BalanceBeam::target_bin_path());
         cmd.arg("--bind").arg(&address);
         for upstream in upstreams {
@@ -80,13 +89,15 @@ impl BalanceBeam {
         });
 
         // Hack: wait for executable to start running
-        delay_for(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(1)).await;
         BalanceBeam { child, address }
     }
 
     #[allow(dead_code)]
     pub async fn get(&self, path: &str) -> Result<String, reqwest::Error> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()?;
         client
             .get(&format!("http://{}{}", self.address, path))
             .header("x-sent-by", "balancebeam-tests")
@@ -98,7 +109,9 @@ impl BalanceBeam {
 
     #[allow(dead_code)]
     pub async fn post(&self, path: &str, body: &str) -> Result<String, reqwest::Error> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()?;
         client
             .post(&format!("http://{}{}", self.address, path))
             .header("x-sent-by", "balancebeam-tests")
